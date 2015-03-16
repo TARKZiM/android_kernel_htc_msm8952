@@ -561,7 +561,6 @@ static int mdss_mdp_wb_wait4comp(struct mdss_mdp_ctl *ctl, void *arg)
 	struct mdss_mdp_writeback_ctx *ctx;
 	int rc = 0;
 	u64 rot_time;
-	u32 isr;
 
 	ctx = (struct mdss_mdp_writeback_ctx *) ctl->priv_data;
 	if (!ctx) {
@@ -572,23 +571,44 @@ static int mdss_mdp_wb_wait4comp(struct mdss_mdp_ctl *ctl, void *arg)
 	if (ctx->comp_cnt == 0)
 		return rc;
 
-	MDSS_XLOG(ctx->wb_num, ctx->intf_num);
 	rc = wait_for_completion_timeout(&ctx->wb_comp,
 			KOFF_TIMEOUT);
 	mdss_mdp_set_intr_callback(ctx->intr_type, ctx->intf_num,
 		NULL, NULL);
 
 	if (rc == 0) {
-		isr = readl_relaxed(ctl->mdata->mdp_base + MDSS_MDP_REG_INTR_STATUS);
-		MDSS_XLOG(ctx->wb_num, ctx->intf_num, isr);
-		mdss_mdp_ctl_notify(ctl, MDP_NOTIFY_FRAME_TIMEOUT);
-		rc = -ENODEV;
-		WARN(1, "writeback kickoff timed out (%d) ctl=%d isr:0x%x\n",
-						rc, ctl->num, isr);
+		u32 status, mask, isr;
+
+		mask = BIT(ctx->intr_type + ctx->intf_num);
+
+		isr = readl_relaxed(ctl->mdata->mdp_base +
+					MDSS_MDP_REG_INTR_STATUS);
+		status = mask & isr;
+
+		pr_info_once("mask: 0x%x, isr: 0x%x, status: 0x%x\n",
+				mask, isr, status);
+
+		if (status) {
+			pr_warn_once("wb done but irq not triggered\n");
+			mdss_mdp_irq_clear(ctl->mdata,
+					ctx->intr_type,
+					ctx->intf_num);
+
+			mdss_mdp_writeback_intr_done(ctl);
+			rc = 0;
+		} else {
+			mdss_mdp_ctl_notify(ctl, MDP_NOTIFY_FRAME_TIMEOUT);
+			rc = -ENODEV;
+			WARN(1, "writeback kickoff timed out (%d) ctl=%d\n",
+							rc, ctl->num);
+		}
 	} else {
+		rc = 0;
+	}
+
+	if (rc == 0) {
 		ctx->end_time = ktime_get();
 		mdss_mdp_ctl_notify(ctl, MDP_NOTIFY_FRAME_DONE);
-		rc = 0;
 	}
 
 	/* once operation is done, disable traffic shaper */
