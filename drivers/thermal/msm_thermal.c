@@ -47,6 +47,8 @@
 #include <linux/suspend.h>
 #include <soc/qcom/msm-core.h>
 #include <linux/cpumask.h>
+#include <linux/htc_flags.h>
+#include <linux/delay.h>
 
 #define CREATE_TRACE_POINTS
 #define TRACE_MSM_THERMAL
@@ -2641,12 +2643,22 @@ static void therm_reset_notify(struct therm_threshold *thresh_data)
 
 	switch (thresh_data->trip_triggered) {
 	case THERMAL_TRIP_CONFIGURABLE_HI:
+		mdelay(50);
 		ret = therm_get_temp(thresh_data->sensor_id,
 				thresh_data->id_type, &temp);
-		if (ret)
+		if (ret) {
 			pr_err("Unable to read TSENS sensor:%d. err:%d\n",
 				thresh_data->sensor_id, ret);
-		msm_thermal_bite(thresh_data->sensor_id, temp);
+			break;
+		}
+		if (thresh_data->sensor_id < 0 || thresh_data->sensor_id > max_tsens_num) {
+			pr_err("unknown tsens id");
+			break;
+		}
+		if (temp >= msm_thermal_info.therm_reset_temp_degC)
+			msm_thermal_bite(thresh_data->sensor_id, temp);
+		else
+			pr_err("msm_thermal ignore thermal reset");
 		break;
 	case THERMAL_TRIP_CONFIGURABLE_LOW:
 		break;
@@ -2786,6 +2798,8 @@ static int __ref update_offline_cores(int val)
 		}
 	}
 
+	pr_info("cpus_offlined: %d\n", cpus_offlined);
+
 	if (pend_hotplug_req && !in_suspend && !retry_in_progress) {
 		retry_in_progress = true;
 		schedule_delayed_work(&retry_hotplug_work,
@@ -2838,6 +2852,7 @@ static __ref int do_hotplug(void *data)
 				mask |= BIT(cpu);
 			mutex_unlock(&devices->hotplug_dev->clnt_lock);
 		}
+		pr_info("mask: %d\n", mask);
 		update_offline_cores(mask);
 		mutex_unlock(&core_control_mutex);
 
@@ -3189,6 +3204,14 @@ static int do_psm(void)
 exit:
 	mutex_unlock(&psm_mutex);
 	return ret;
+}
+
+static void lower_thermal_threshold(int threshold){
+	msm_thermal_info.limit_temp_degC-=threshold;
+	msm_thermal_info.core_limit_temp_degC-=threshold;
+	msm_thermal_info.hotplug_temp_degC-=threshold;
+	pr_info("limit temp = %d, core limit temp = %d, hotplug limit temp= %d\n",
+	msm_thermal_info.limit_temp_degC, msm_thermal_info.core_limit_temp_degC, msm_thermal_info.hotplug_temp_degC);
 }
 
 static void do_freq_control(long temp)
@@ -4581,6 +4604,9 @@ static ssize_t __ref store_cpus_offlined(struct kobject *kobj,
 		goto done_cc;
 	}
 
+	pr_info("\"%s\"(PID:%i) request cpus offlined mask %d \n", current->comm,
+                        current->pid, val);
+
 	for_each_possible_cpu(cpu) {
 		if (!(msm_thermal_info.core_control_mask & BIT(cpu)))
 			continue;
@@ -4909,6 +4935,11 @@ int msm_thermal_init(struct msm_thermal_data *pdata)
 				msm_thermal_info.sensor_id);
 		return -EINVAL;
 	}
+
+	pr_info("limit temp = %d, core limit temp = %d, hotplug limit temp= %d\n",
+	msm_thermal_info.limit_temp_degC, msm_thermal_info.core_limit_temp_degC, msm_thermal_info.hotplug_temp_degC);
+	if(get_kernel_flag() & KERNEL_FLAG_KEEP_CHARG_ON)
+		lower_thermal_threshold(15);
 
 	enabled = 1;
 	polling_enabled = 1;
@@ -6988,6 +7019,12 @@ static int __init ktm_params(char *str)
 }
 
 early_param("qcomthermal", ktm_params);
+
+void set_ktm_freq_limit(uint32_t freq_limit)
+{
+	if (freq_limit > 0)
+		msm_thermal_info.freq_limit = freq_limit;
+}
 
 static struct of_device_id msm_thermal_match_table[] = {
 	{.compatible = "qcom,msm-thermal"},

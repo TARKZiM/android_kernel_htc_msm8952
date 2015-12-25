@@ -2375,6 +2375,7 @@ static void dsi_send_events(struct mdss_dsi_ctrl_pdata *ctrl,
 	spin_unlock(&dsi_event.event_lock);
 }
 
+extern struct msm_fb_data_type *mfd_instance;
 static int dsi_event_thread(void *data)
 {
 	struct mdss_dsi_event *ev;
@@ -2413,19 +2414,12 @@ static int dsi_event_thread(void *data)
 			mdss_dsi_pll_relock(ctrl);
 
 		if (todo & DSI_EV_MDP_FIFO_UNDERFLOW) {
-			mutex_lock(&ctrl->mutex);
-			if (ctrl->recovery) {
-				pr_debug("%s: Handling underflow event\n",
-							__func__);
-				mdss_dsi_clk_ctrl(ctrl, DSI_ALL_CLKS, 1);
-				mdss_dsi_sw_reset(ctrl, true);
-				ctrl->recovery->fxn(ctrl->recovery->data,
-					MDP_INTF_DSI_CMD_FIFO_UNDERFLOW);
-				mdss_dsi_clk_ctrl(ctrl, DSI_ALL_CLKS, 0);
-			}
-			mutex_unlock(&ctrl->mutex);
 			MDSS_XLOG_TOUT_HANDLER("mdp", "dsi0_ctrl", "dsi0_phy",
-				"dsi1_ctrl", "dsi1_phy", "panic");
+				"dsi1_ctrl", "dsi1_phy");
+			if(mfd_instance) {
+				pr_info("DSI_EV_MDP_FIFO_UNDERFLOW: mdss_fb_report_panel_dead recovery\n");
+				mdss_fb_report_panel_dead(mfd_instance);
+			}
 		}
 
 		if (todo & DSI_EV_DSI_FIFO_EMPTY)

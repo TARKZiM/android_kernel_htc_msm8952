@@ -21,8 +21,10 @@
 #include <linux/leds.h>
 #include <linux/qpnp/pwm.h>
 #include <linux/err.h>
+#include <asm/debug_display.h>
 
 #include "mdss_dsi.h"
+#include "mdss_htc_util.h"
 #include "mdss_dba_utils.h"
 
 #define DT_CMD_HDR 6
@@ -180,7 +182,33 @@ static void mdss_dsi_panel_cmds_send(struct mdss_dsi_ctrl_pdata *ctrl,
 	mdss_dsi_cmdlist_put(ctrl, &cmdreq);
 }
 
-static char led_pwm1[2] = {0x51, 0x0};	/* DTYPE_DCS_WRITE1 */
+#define BRI_SETTING_MIN                 30
+#define BRI_SETTING_DEF                 142
+#define BRI_SETTING_MAX                 255
+
+static unsigned char shrink_pwm(int val, int pwm_min, int pwm_default, int pwm_max)
+{
+        unsigned char shrink_br = BRI_SETTING_MAX;
+
+        if (val <= 0) {
+                shrink_br = 0;
+        } else if (val > 0 && (val < BRI_SETTING_MIN)) {
+                shrink_br = pwm_min;
+        } else if ((val >= BRI_SETTING_MIN) && (val <= BRI_SETTING_DEF)) {
+                shrink_br = (val - BRI_SETTING_MIN) * (pwm_default - pwm_min) /
+                (BRI_SETTING_DEF - BRI_SETTING_MIN) + pwm_min;
+        } else if (val > BRI_SETTING_DEF && val <= BRI_SETTING_MAX) {
+                shrink_br = (val - BRI_SETTING_DEF) * (pwm_max - pwm_default) /
+                (BRI_SETTING_MAX - BRI_SETTING_DEF) + pwm_default;
+        } else if (val > BRI_SETTING_MAX)
+                shrink_br = pwm_max;
+
+        PR_DISP_INFO("brightness orig=%d, transformed=%d\n", val, shrink_br);
+
+        return shrink_br;
+}
+
+static char led_pwm1[2] = {0x51, 0x0};	
 static struct dsi_cmd_desc backlight_cmd = {
 	{DTYPE_DCS_WRITE1, 1, 0, 0, 1, sizeof(led_pwm1)},
 	led_pwm1
@@ -199,7 +227,7 @@ static void mdss_dsi_panel_bklt_dcs(struct mdss_dsi_ctrl_pdata *ctrl, int level)
 
 	pr_debug("%s: level=%d\n", __func__, level);
 
-	led_pwm1[1] = (unsigned char)level;
+	led_pwm1[1] = (unsigned char)shrink_pwm(level, ctrl->pwm_min, ctrl->pwm_default, ctrl->pwm_max);
 
 	memset(&cmdreq, 0, sizeof(cmdreq));
 	cmdreq.cmds = &backlight_cmd;
@@ -582,6 +610,8 @@ end:
 	return 0;
 }
 
+extern struct mdss_dsi_pwrctrl pwrctrl_pdata;
+
 static void mdss_dsi_panel_switch_mode(struct mdss_panel_data *pdata,
 							int mode)
 {
@@ -607,7 +637,8 @@ static void mdss_dsi_panel_switch_mode(struct mdss_panel_data *pdata,
 	else
 		pcmds = &ctrl_pdata->cmd2video;
 
-	mdss_dsi_panel_cmds_send(ctrl_pdata, pcmds);
+	if(pcmds->cmd_cnt)
+		mdss_dsi_panel_cmds_send(ctrl_pdata, pcmds);
 
 	return;
 }
@@ -634,6 +665,9 @@ static void mdss_dsi_panel_bl_ctrl(struct mdss_panel_data *pdata,
 
 	if ((bl_level < pdata->panel_info.bl_min) && (bl_level != 0))
 		bl_level = pdata->panel_info.bl_min;
+
+	if(pwrctrl_pdata.bkl_config)
+		pwrctrl_pdata.bkl_config(&ctrl_pdata->panel_data, ((bl_level == 0) ? 0 : 1));
 
 	switch (ctrl_pdata->bklt_ctrl) {
 	case BL_WLED:
@@ -673,6 +707,18 @@ static void mdss_dsi_panel_bl_ctrl(struct mdss_panel_data *pdata,
 	}
 }
 
+static void mdss_dsi_display_on(struct mdss_panel_data *pdata)
+{
+	struct mdss_dsi_ctrl_pdata *ctrl = NULL;
+
+	ctrl = container_of(pdata, struct mdss_dsi_ctrl_pdata,
+					panel_data);
+
+	PR_DISP_INFO("%s: pid=%d\n", __func__, current->pid);
+	if(ctrl && ctrl->display_on_cmds.cmd_cnt)
+		mdss_dsi_panel_cmds_send(ctrl, &ctrl->display_on_cmds);
+}
+
 static int mdss_dsi_panel_on(struct mdss_panel_data *pdata)
 {
 	struct mdss_dsi_ctrl_pdata *ctrl = NULL;
@@ -704,8 +750,11 @@ static int mdss_dsi_panel_on(struct mdss_panel_data *pdata)
 
 	pr_debug("%s: ctrl=%p cmd_cnt=%d\n", __func__, ctrl, on_cmds->cmd_cnt);
 
-	if (on_cmds->cmd_cnt)
-		mdss_dsi_panel_cmds_send(ctrl, on_cmds);
+	if (pdata->panel_info.first_power_on == 1) {
+		pr_info("panel on already\n");
+	} else if (on_cmds->cmd_cnt) {
+			mdss_dsi_panel_cmds_send(ctrl, on_cmds);
+	}
 
 	if (ctrl->ds_registered)
 		mdss_dba_utils_video_on(pinfo->dba_data, pinfo);
@@ -771,6 +820,9 @@ static int mdss_dsi_panel_off(struct mdss_panel_data *pdata)
 		if (ctrl->ndx != DSI_CTRL_LEFT)
 			goto end;
 	}
+
+	if(pwrctrl_pdata.bkl_config)
+		pwrctrl_pdata.bkl_config(&ctrl->panel_data, 0);
 
 	if (ctrl->off_cmds.cmd_cnt)
 		mdss_dsi_panel_cmds_send(ctrl, &ctrl->off_cmds);
@@ -1378,18 +1430,14 @@ static int mdss_dsi_parse_reset_seq(struct device_node *np,
 
 static int mdss_dsi_gen_read_status(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 {
-	int i;
-
-	for (i = 0; i < ctrl_pdata->status_cmds_rlen; i++) {
-		if (!mdss_dsi_cmp_panel_reg(ctrl_pdata->status_buf,
-					ctrl_pdata->status_value, i)) {
-			pr_err("%s: Read back value from panel is incorrect\n",
-					__func__);
-			return -EINVAL;
-		}
+	if (!mdss_dsi_cmp_panel_reg(ctrl_pdata->status_buf,
+		ctrl_pdata->status_value, 0)) {
+		pr_err("%s: Read back value from panel is incorrect\n",
+							__func__);
+		return -EINVAL;
+	} else {
+		return 1;
 	}
-
-	return 1;
 }
 
 static int mdss_dsi_nt35596_read_status(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
@@ -1594,6 +1642,8 @@ error:
 	pinfo->esd_check_enabled = false;
 }
 
+extern void backlight_callback_register( void (*enable_backlight)(int) );
+
 static int mdss_dsi_parse_panel_features(struct device_node *np,
 	struct mdss_dsi_ctrl_pdata *ctrl)
 {
@@ -1619,9 +1669,8 @@ static int mdss_dsi_parse_panel_features(struct device_node *np,
 					"qcom,partial-update-roi-merge");
 		}
 
-		if (pinfo->pdest == DISPLAY_1)
-			pinfo->dcs_cmd_by_left = of_property_read_bool(np,
-						"qcom,dcs-cmd-by-left");
+		pinfo->dcs_cmd_by_left = of_property_read_bool(np,
+				"qcom,dcs-cmd-by-left");
 	}
 
 	pinfo->ulps_feature_enabled = of_property_read_bool(np,
@@ -1655,6 +1704,13 @@ static int mdss_dsi_parse_panel_features(struct device_node *np,
 			pr_err("%s:%d, Disp_en gpio not specified\n",
 					__func__, __LINE__);
 	}
+
+	if(of_property_read_bool(np, "htc,disable-backlight-when-flashlight")){
+		backlight_callback_register(&htc_enable_backlight_when_flashlight);
+	}
+
+	pinfo->blk_pending_display_on = of_property_read_bool(np,
+				"htc,blk_pending_display_on");
 
 	return 0;
 }
@@ -1853,10 +1909,13 @@ void mdss_dsi_unregister_bl_settings(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 		led_trigger_unregister_simple(bl_led_trigger);
 }
 
+extern int htc_mdss_dsi_parse_dcs_cmds(struct device_node *np,
+		struct dsi_panel_cmds *pcmds, char *cmd_key, char *link_key);
+
 static int mdss_panel_parse_dt(struct device_node *np,
 			struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 {
-	u32 tmp;
+	u32 tmp, res[6];
 	int rc, i, len;
 	const char *data;
 	struct mdss_panel_info *pinfo = &(ctrl_pdata->panel_data.panel_info);
@@ -2106,14 +2165,140 @@ static int mdss_panel_parse_dt(struct device_node *np,
 	mdss_dsi_parse_reset_seq(np, pinfo->rst_seq, &(pinfo->rst_seq_len),
 		"qcom,mdss-dsi-reset-sequence");
 
-	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->on_cmds,
-		"qcom,mdss-dsi-on-command", "qcom,mdss-dsi-on-command-state");
+	htc_mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->on_cmds,
+		"htc-fmt,mdss-dsi-on-command", "qcom,mdss-dsi-on-command-state");
 
-	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->post_panel_on_cmds,
-		"qcom,mdss-dsi-post-panel-on-command", NULL);
+	htc_mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->post_panel_on_cmds,
+		"htc-fmt,mdss-dsi-post-panel-on-command", NULL);
 
-	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->off_cmds,
-		"qcom,mdss-dsi-off-command", "qcom,mdss-dsi-off-command-state");
+	htc_mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->off_cmds,
+		"htc-fmt,mdss-dsi-off-command", "qcom,mdss-dsi-off-command-state");
+
+	htc_mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->display_on_cmds,
+		"htc-fmt,display-on-cmds", "qcom,mdss-dsi-default-command-state");
+
+	if(!ctrl_pdata->on_cmds.cmd_cnt || !ctrl_pdata->on_cmds.blen)
+		mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->on_cmds,
+			"qcom,mdss-dsi-on-command", "qcom,mdss-dsi-on-command-state");
+
+	if(!ctrl_pdata->post_panel_on_cmds.cmd_cnt || !ctrl_pdata->post_panel_on_cmds.blen)
+		mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->post_panel_on_cmds,
+			"qcom,mdss-dsi-post-panel-on-command", NULL);
+
+	if(!ctrl_pdata->off_cmds.cmd_cnt || !ctrl_pdata->off_cmds.blen)
+		mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->off_cmds,
+			"qcom,mdss-dsi-off-command", "qcom,mdss-dsi-off-command-state");
+
+	if(!ctrl_pdata->display_on_cmds.cmd_cnt || !ctrl_pdata->display_on_cmds.blen)
+		mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->display_on_cmds,
+			"qcom,display-on-cmds", "qcom,mdss-dsi-default-command-state"); 
+
+	rc = of_property_read_u32_array(np, "qcom,mdss-shrink-pwm", res, 3);
+	if (rc) {
+		pr_err("%s:%d, panel dimension not specified\n",
+						 __func__, __LINE__);
+	}
+	ctrl_pdata->pwm_min  = (!rc ? res[0] : BRI_SETTING_MIN);
+	ctrl_pdata->pwm_default = (!rc ? res[1] : BRI_SETTING_DEF);
+	ctrl_pdata->pwm_max = (!rc ? res[2] : BRI_SETTING_MAX);
+
+	rc = of_property_read_u32(np, "htc,panel-id", &tmp);
+	pinfo->panel_id = (!rc ? tmp : 0);
+
+	rc = of_property_read_u32(np, "htc,mdss-camera-blk", &tmp);
+	pinfo->camera_blk = (!rc ? tmp : BRI_SETTING_DEF);
+
+	rc = of_property_read_u32(np, "htc,mdss-pp-hue", &tmp);
+	pinfo->mdss_pp_hue = (!rc ? tmp : 0);
+
+	pinfo->skip_frame = of_property_read_bool(np, "htc,skip-frame");
+
+	rc = of_property_read_u32(np, "htc,burst-on-level", &tmp);
+	ctrl_pdata->burst_on_level = (!rc ? tmp : 0);
+
+	rc = of_property_read_u32(np, "htc,burst-off-level", &tmp);
+	ctrl_pdata->burst_off_level = (!rc ? tmp : 0);
+
+	htc_mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->cabc_off_cmds,
+		"htc-fmt,cabc-off-cmds", "qcom,mdss-dsi-default-command-state");
+
+	htc_mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->cabc_ui_cmds,
+		"htc-fmt,cabc-ui-cmds", "qcom,mdss-dsi-default-command-state");
+
+	htc_mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->cabc_video_cmds,
+		"htc-fmt,cabc-video-cmds", "qcom,mdss-dsi-default-command-state");
+
+	htc_mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->dimming_on_cmds,
+		"htc-fmt,dimming-on-cmds", "qcom,mdss-dsi-default-command-state");
+
+	htc_mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->dimming_off_cmds,
+		"htc-fmt,dimming-off-cmds", "qcom,mdss-dsi-default-command-state");
+
+	htc_mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->burst_on_cmds,
+		"htc-fmt,burst-on-cmds", "qcom,mdss-dsi-default-command-state");
+
+	htc_mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->burst_off_cmds,
+		"htc-fmt,burst-off-cmds", "qcom,mdss-dsi-default-command-state");
+
+	if(!ctrl_pdata->cabc_off_cmds.cmd_cnt || !ctrl_pdata->cabc_off_cmds.blen)
+		mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->cabc_off_cmds,
+			"htc,cabc-off-cmds", "qcom,mdss-dsi-default-command-state");
+
+	if(!ctrl_pdata->cabc_ui_cmds.cmd_cnt || !ctrl_pdata->cabc_ui_cmds.blen)
+		mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->cabc_ui_cmds,
+			"htc,cabc-ui-cmds", "qcom,mdss-dsi-default-command-state");
+
+	if(!ctrl_pdata->cabc_video_cmds.cmd_cnt || !ctrl_pdata->cabc_video_cmds.blen)
+		mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->cabc_video_cmds,
+			"htc,cabc-video-cmds", "qcom,mdss-dsi-default-command-state");
+
+	if(!ctrl_pdata->dimming_on_cmds.cmd_cnt || !ctrl_pdata->dimming_on_cmds.blen)
+		mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->dimming_on_cmds,
+			"htc,dimming-on-cmds", "qcom,mdss-dsi-default-command-state");
+
+	if(!ctrl_pdata->dimming_off_cmds.cmd_cnt || !ctrl_pdata->dimming_off_cmds.blen)
+		mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->dimming_off_cmds,
+			"htc,dimming-off-cmds", "qcom,mdss-dsi-default-command-state");
+
+	if(!ctrl_pdata->burst_on_cmds.cmd_cnt || !ctrl_pdata->burst_on_cmds.blen)
+		mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->burst_on_cmds,
+			"htc,burst-on-cmds", "qcom,mdss-dsi-default-command-state");
+
+	if(!ctrl_pdata->burst_off_cmds.cmd_cnt || !ctrl_pdata->burst_off_cmds.blen)
+		mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->burst_off_cmds,
+			"htc,burst-off-cmds", "qcom,mdss-dsi-default-command-state");
+
+	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->dimming_switch_cmds,
+		"htc,dimming-switch-cmds", "qcom,mdss-dsi-default-command-state");
+
+	rc = of_property_read_u32(np, "htc,mdp-pcc-r", &tmp);
+	pinfo->pcc_r = (!rc ? tmp : 0);
+
+	rc = of_property_read_u32(np, "htc,mdp-pcc-g", &tmp);
+	pinfo->pcc_g = (!rc ? tmp : 0);
+
+	rc = of_property_read_u32(np, "htc,mdp-pcc-b", &tmp);
+	pinfo->pcc_b = (!rc ? tmp : 0);
+
+#ifdef CONFIG_HTC_POWER_HACK
+	rc = of_property_read_u32_array(np, "qcom,mdss-shrink-pwm-power-hack", res, 3);
+	if (rc) {
+		pr_err("%s:%d, qcom,mdss-shrink-pwm-power-hack not specified\n",
+						 __func__, __LINE__);
+	} else {
+		ctrl_pdata->pwm_min  = res[0];
+		ctrl_pdata->pwm_default = res[1];
+		ctrl_pdata->pwm_max = res[2];
+	}
+
+	rc = of_property_read_u32(np, "htc,mdss-camera-blk-power-hack", &tmp);
+	if (rc) {
+		pr_err("%s:%d, htc,mdss-camera-blk-power-hack not specified\n",
+						__func__, __LINE__);
+	} else {
+		pinfo->camera_blk = tmp;
+	}
+#endif
 
 	pinfo->mipi.force_clk_lane_hs = of_property_read_bool(np,
 		"qcom,mdss-dsi-force-clock-lane-hs");
@@ -2187,6 +2372,7 @@ int mdss_dsi_panel_init(struct device_node *node,
 	} else {
 		pr_info("%s: Panel Name = %s\n", __func__, panel_name);
 		strlcpy(&pinfo->panel_name[0], panel_name, MDSS_MAX_PANEL_LEN);
+		htc_panel_info(panel_name);
 	}
 	rc = mdss_panel_parse_dt(node, ctrl_pdata);
 	if (rc) {
@@ -2204,6 +2390,7 @@ int mdss_dsi_panel_init(struct device_node *node,
 	ctrl_pdata->off = mdss_dsi_panel_off;
 	ctrl_pdata->low_power_config = mdss_dsi_panel_low_power_config;
 	ctrl_pdata->panel_data.set_backlight = mdss_dsi_panel_bl_ctrl;
+	ctrl_pdata->panel_data.display_on = mdss_dsi_display_on;
 	ctrl_pdata->switch_mode = mdss_dsi_panel_switch_mode;
 
 	return 0;

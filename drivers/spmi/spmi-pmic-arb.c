@@ -1013,9 +1013,16 @@ periph_interrupt(struct spmi_pmic_arb_dev *pmic_arb, u8 apid, bool show)
 		mb();
 	}
 
+#ifdef CONFIG_HTC_BATT_8960
+	if((sid == 0x2) && ((pid >= 0x10) && (pid <= 0x16))) {
+		printk("%s: interrupt, apid:0x%x, sid:0x%x, pid:0x%x, intr:0x%x\n",
+							__func__, apid, sid, pid, status);
+	}
+#else
 	dev_dbg(pmic_arb->dev,
 		"interrupt, apid:0x%x, sid:0x%x, pid:0x%x, intr:0x%x\n",
 						apid, sid, pid, status);
+#endif
 
 	/* Send interrupt notification */
 	for (i = 0; status && i < 8; ++i, status >>= 1) {
@@ -1025,9 +1032,13 @@ periph_interrupt(struct spmi_pmic_arb_dev *pmic_arb, u8 apid, bool show)
 				.per = pid,
 				.irq = i,
 			};
-			if (show)
+			if (show){
 				qpnpint_show_irq(&pmic_arb->controller,
 								&irq_spec);
+#ifdef CONFIG_HTC_POWER_DEBUG
+				printk("[WAKEUP] Resume caused by pmic-0x%x 0x%x 0x%x\n", sid, pid, i);
+#endif
+			}
 			else
 				qpnpint_handle_irq(&pmic_arb->controller,
 								&irq_spec);
