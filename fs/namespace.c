@@ -1298,6 +1298,10 @@ static int do_umount(struct mount *mnt, int flags)
 	}
 	br_write_unlock(&vfsmount_lock);
 	namespace_unlock();
+
+	pr_info("pid:%d(%s)(parent:%d/%s)  (%s) umounted filesystem.\n",
+			current->pid, current->comm, current->parent->pid,
+			current->parent->comm, sb->s_id);
 	return retval;
 }
 
@@ -2055,6 +2059,12 @@ static int do_new_mount(struct path *path, const char *fstype, int flags,
 	err = do_add_mount(real_mount(mnt), path, mnt_flags);
 	if (err)
 		mntput(mnt);
+
+	
+	if (!err && !strcmp(fstype, "ext4") &&
+	    !strcmp(path->dentry->d_name.name, "data"))
+		mnt->mnt_sb->fsync_flags |= FLAG_ASYNC_FSYNC;
+
 	return err;
 }
 
@@ -2766,6 +2776,10 @@ static void __init init_mount_tree(void)
 	set_fs_root(current->fs, &root);
 }
 
+#ifdef CONFIG_HTC_FD_MONITOR
+void create_fd_list_entry(struct kobject *kobj);
+#endif
+
 void __init mnt_init(void)
 {
 	unsigned u;
@@ -2798,6 +2812,10 @@ void __init mnt_init(void)
 	fs_kobj = kobject_create_and_add("fs", NULL);
 	if (!fs_kobj)
 		printk(KERN_WARNING "%s: kobj create error\n", __func__);
+
+#ifdef CONFIG_HTC_FD_MONITOR
+	create_fd_list_entry(fs_kobj);
+#endif
 	init_rootfs();
 	init_mount_tree();
 }
