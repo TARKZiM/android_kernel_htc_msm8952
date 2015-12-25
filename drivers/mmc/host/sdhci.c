@@ -50,12 +50,17 @@
 #endif
 
 #define MAX_TUNING_LOOP 40
+#define MAX_CRCERR_COUNT 2
 
 #define SDHCI_DBG_DUMP_RS_INTERVAL (10 * HZ)
 #define SDHCI_DBG_DUMP_RS_BURST 2
 
 static unsigned int debug_quirks = 0;
 static unsigned int debug_quirks2;
+
+extern struct scatterlist	*cur_sg;
+extern struct scatterlist	*prev_sg;
+extern struct scatterlist *mmc_alloc_sg(int sg_len, int *err);
 
 static void sdhci_finish_data(struct sdhci_host *);
 
@@ -1536,6 +1541,13 @@ static int sdhci_set_power(struct sdhci_host *host, unsigned short power)
 	return power;
 }
 
+static inline unsigned long sdhci_get_pm_qos_cpumask(struct sdhci_host *host,
+						int index)
+{
+	struct sdhci_host_qos *host_qos = host->host_qos;
+	return cpumask_bits(&(host_qos[index].pm_qos_req_dma.cpus_affine))[0];
+}
+
 static void sdhci_pm_qos_remove_work(struct work_struct *work)
 {
 	struct sdhci_host *host = container_of(work, struct sdhci_host,
@@ -1554,6 +1566,10 @@ static void sdhci_pm_qos_remove_work(struct work_struct *work)
 
 	pm_qos_update_request(&(host_qos[vote].pm_qos_req_dma),
 				PM_QOS_DEFAULT_VALUE);
+	trace_mmc_pm_qos_unvote(mmc_hostname(host->mmc), vote,
+		PM_QOS_DEFAULT_VALUE, host_qos[vote].pm_qos_req_dma.type,
+		sdhci_get_pm_qos_cpumask(host, vote),
+		host->power_policy, -EINVAL, vote);
 
 	host->last_qos_policy = -EINVAL;
 out:
@@ -1616,9 +1632,20 @@ static void __sdhci_update_pm_qos(struct mmc_host *mmc, struct mmc_request *mrq)
 		pm_qos_update_request(
 			&(host_qos[host->last_qos_policy].pm_qos_req_dma),
 			PM_QOS_DEFAULT_VALUE);
+		trace_mmc_pm_qos_unvote(mmc_hostname(host->mmc),
+			host->last_qos_policy, PM_QOS_DEFAULT_VALUE,
+			host_qos[host->last_qos_policy].pm_qos_req_dma.type,
+			sdhci_get_pm_qos_cpumask(host, host->last_qos_policy),
+			host->power_policy, mrq->cmd->opcode, vote);
+
 		}
 	pm_qos_update_request(&(host_qos[vote].pm_qos_req_dma),
 		host_qos[vote].cpu_dma_latency_us[pol_index]);
+	trace_mmc_pm_qos_vote(mmc_hostname(host->mmc), -EINVAL,
+		host_qos[vote].cpu_dma_latency_us[pol_index],
+		host_qos[vote].pm_qos_req_dma.type,
+		sdhci_get_pm_qos_cpumask(host, vote),
+		host->power_policy, mrq->cmd->opcode, vote);
 	host->last_qos_policy = vote;
 out:
 	mutex_unlock(&host->qos_lock);
@@ -2972,6 +2999,8 @@ static void sdhci_timeout_timer(unsigned long data)
 	spin_lock_irqsave(&host->lock, flags);
 
 	if (host->mrq) {
+		pr_err("%s: CMD%d: Request timeout\n", mmc_hostname(host->mmc),
+						host->mrq->cmd->opcode);
 		if (!host->mrq->cmd->ignore_timeout) {
 			pr_err("%s: Timeout waiting for hardware interrupt.\n",
 			       mmc_hostname(host->mmc));
@@ -3017,6 +3046,35 @@ static void sdhci_tuning_timer(unsigned long data)
 	spin_unlock_irqrestore(&host->lock, flags);
 }
 
+static void sdhci_underclocking(struct sdhci_host *host)
+{
+	if (host->mmc->crc_count++ < MAX_CRCERR_COUNT) {
+		pr_err("%s: %s: error count : %d\n", mmc_hostname(host->mmc),
+			__func__, host->mmc->crc_count);
+		return;
+	}
+	switch (host->mmc->ios.timing) {
+	case MMC_TIMING_UHS_SDR12:
+		host->mmc->caps &= ~MMC_CAP_UHS_SDR12;
+	case MMC_TIMING_UHS_SDR25:
+		host->mmc->caps &= ~MMC_CAP_UHS_SDR25;
+	case MMC_TIMING_UHS_SDR50:
+		host->mmc->caps &= ~MMC_CAP_UHS_SDR50;
+	case MMC_TIMING_UHS_DDR50:
+		host->mmc->caps &= ~MMC_CAP_UHS_DDR50;
+	case MMC_TIMING_UHS_SDR104:
+		host->mmc->caps &= ~MMC_CAP_UHS_SDR104;
+		break;
+	default:
+		pr_err("%s: %s: unknow timing : %d\n", mmc_hostname(host->mmc),
+			__func__, host->mmc->ios.timing);
+		break;
+	}
+	host->mmc->crc_count = 0;
+	pr_err("%s: %s: disable clock : %d\n", mmc_hostname(host->mmc),
+		__func__, host->mmc->ios.timing);
+}
+
 /*****************************************************************************\
  *                                                                           *
  * Interrupt handling                                                        *
@@ -3043,8 +3101,18 @@ static void sdhci_cmd_irq(struct sdhci_host *host, u32 intmask)
 	if (intmask & SDHCI_INT_TIMEOUT)
 		host->cmd->error = -ETIMEDOUT;
 	else if (intmask & (SDHCI_INT_CRC | SDHCI_INT_END_BIT |
-			SDHCI_INT_INDEX))
+			SDHCI_INT_INDEX)) {
 		host->cmd->error = -EILSEQ;
+		if ((host->cmd->opcode != MMC_SEND_TUNING_BLOCK_HS400) &&
+			(host->cmd->opcode != MMC_SEND_TUNING_BLOCK_HS200) &&
+			(host->cmd->opcode != MMC_SEND_STATUS) &&
+			(host->cmd->opcode != MMC_SEND_TUNING_BLOCK)) {
+			pr_err("%s: CMD%d: Command CRC error\n",
+					mmc_hostname(host->mmc), host->cmd->opcode);
+			if (mmc_is_sd_host(host->mmc))
+				sdhci_underclocking(host);
+			}
+	}
 
 	if (intmask & SDHCI_INT_AUTO_CMD_ERR) {
 		auto_cmd_status = host->auto_cmd_err_sts;
@@ -3175,14 +3243,30 @@ static void sdhci_data_irq(struct sdhci_host *host, u32 intmask)
 		return;
 	}
 
-	if (intmask & SDHCI_INT_DATA_TIMEOUT)
+	if (intmask & SDHCI_INT_DATA_TIMEOUT) {
 		host->data->error = -ETIMEDOUT;
-	else if (intmask & SDHCI_INT_DATA_END_BIT)
+		command = SDHCI_GET_CMD(sdhci_readw(host,
+					SDHCI_COMMAND));
+		pr_err("%s: CMD%d: Data timeout\n",
+				mmc_hostname(host->mmc), command);
+	} else if (intmask & SDHCI_INT_DATA_END_BIT)
 		host->data->error = -EILSEQ;
 	else if ((intmask & SDHCI_INT_DATA_CRC) &&
-		(command != MMC_BUS_TEST_R))
+		(command != MMC_BUS_TEST_R)) {
+		command = SDHCI_GET_CMD(sdhci_readw(host,
+					SDHCI_COMMAND));
 		host->data->error = -EILSEQ;
-	else if (intmask & SDHCI_INT_ADMA_ERROR) {
+		if ((command != MMC_SEND_TUNING_BLOCK_HS400) &&
+			(command != MMC_SEND_TUNING_BLOCK_HS200) &&
+			(command != MMC_SEND_TUNING_BLOCK)) {
+			pr_err("%s: Data CRC error\n",
+					mmc_hostname(host->mmc));
+			pr_err("%s: opcode 0x%.8x\n", __func__,
+					command);
+			if (mmc_is_sd_host(host->mmc))
+				sdhci_underclocking(host);
+		}
+	} else if (intmask & SDHCI_INT_ADMA_ERROR) {
 		pr_err("%s: ADMA error\n", mmc_hostname(host->mmc));
 		sdhci_show_adma_error(host);
 		host->data->error = -EIO;
@@ -4169,6 +4253,9 @@ int sdhci_add_host(struct sdhci_host *host)
 	if (caps[1] & SDHCI_USE_SDR50_TUNING)
 		host->flags |= SDHCI_SDR50_NEEDS_TUNING;
 
+	
+	mmc->caps_uhs = mmc->caps;
+
 	/* Does the host need tuning for HS200? */
 	if (mmc->caps2 & MMC_CAP2_HS200)
 		host->flags |= SDHCI_HS200_NEEDS_TUNING;
@@ -4308,6 +4395,15 @@ int sdhci_add_host(struct sdhci_host *host)
 		mmc->max_segs = 1;
 	else/* PIO */
 		mmc->max_segs = 128;
+
+	if (mmc_is_sd_host(mmc)) {
+		cur_sg = mmc_alloc_sg(mmc->max_segs, &ret);
+		if (ret)
+			printk("%s %s alloc cur_sg err : %d\n", mmc_hostname(mmc), __func__, ret);
+		prev_sg = mmc_alloc_sg(mmc->max_segs, &ret);
+		if (ret)
+			printk("%s %s alloc prev_sg err : %d\n", mmc_hostname(mmc), __func__, ret);
+	}
 
 	/*
 	 * Maximum number of sectors in one transfer. Limited by DMA boundary

@@ -118,6 +118,11 @@ static bool sleep_disabled;
 module_param_named(sleep_disabled,
 	sleep_disabled, bool, S_IRUGO | S_IWUSR | S_IWGRP);
 
+#ifdef CONFIG_HTC_POWER_DEBUG
+static int htc_pm_debug_mask = 0;
+module_param_named(htc_pm_debug_mask, htc_pm_debug_mask, int, S_IRUGO | S_IWUSR | S_IWGRP);
+#endif
+
 s32 msm_cpuidle_get_deep_idle_latency(void)
 {
 	return 10;
@@ -1076,6 +1081,11 @@ static int lpm_suspend_enter(suspend_state_t state)
 	 * LPMs(XO and Vmin).
 	 */
 	clock_debug_print_enabled();
+
+#ifdef CONFIG_HTC_POWER_DEBUG
+	if(htc_pm_debug_mask)
+		clock_blocked_print();
+#endif
 
 	if (!use_psci)
 		msm_cpu_pm_enter_sleep(cluster->cpu->levels[idx].mode, false);

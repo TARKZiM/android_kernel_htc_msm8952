@@ -42,6 +42,8 @@
 #include <asm/siginfo.h>
 #include <asm/cacheflush.h>
 #include "audit.h"	/* audit_signal_info() */
+#include <htc_debug/stability/htc_process_debug.h>
+#include <linux/htc_flags.h>
 
 /*
  * SLAB caches for signal bits.
@@ -1147,10 +1149,78 @@ ret:
 	return ret;
 }
 
+#if defined(CONFIG_HTC_DEBUG_DYING_PROCS)
+#include <linux/proc_fs.h>
+#include <linux/seq_file.h>
+#define MAX_DYING_PROC_COUNT (10)
+struct dying_pid {
+	pid_t pid;
+	unsigned long jiffy;
+};
+static DEFINE_SPINLOCK(dying_pid_lock);
+static int sigkill_pending(struct task_struct *tsk);
+static struct dying_pid dying_pid_buf[MAX_DYING_PROC_COUNT];
+static unsigned int dying_pid_buf_idx;
+
+static int proc_dying_processors_show(struct seq_file *m, void *v)
+{
+	unsigned long jiffy = jiffies;
+	unsigned long flags;
+	int i;
+
+	spin_lock_irqsave(&dying_pid_lock, flags);
+	for (i = 0; i < MAX_DYING_PROC_COUNT; i++)
+		if (dying_pid_buf[i].pid) {
+			seq_printf(m, "%ld:%ld\n",
+					(long int) dying_pid_buf[i].pid,
+					jiffy - dying_pid_buf[i].jiffy);
+		}
+	spin_unlock_irqrestore(&dying_pid_lock, flags);
+
+	return 0;
+}
+
+static int proc_dying_processors_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, proc_dying_processors_show, PDE_DATA(inode));
+}
+
+static const struct file_operations proc_dying_processors_fops = {
+	.open           = proc_dying_processors_open,
+	.read           = seq_read,
+	.llseek         = seq_lseek,
+	.release        = single_release,
+};
+
+static int __init dying_processors_init(void)
+{
+	memset(dying_pid_buf, 0, sizeof(dying_pid_buf));
+	proc_create_data("dying_processes", 0, NULL,
+			&proc_dying_processors_fops, NULL);
+	return 0;
+}
+module_init(dying_processors_init);
+#endif
+
 static int send_signal(int sig, struct siginfo *info, struct task_struct *t,
 			int group)
 {
 	int from_ancestor_ns = 0;
+
+#ifdef CONFIG_HTC_PROCESS_DEBUG
+	send_signal_debug_dump(sig, t);
+#endif
+
+#if defined(CONFIG_HTC_DEBUG_DYING_PROCS)
+	if (sig == SIGKILL && !sigkill_pending(t)) {
+		unsigned long flags;
+		spin_lock_irqsave(&dying_pid_lock, flags);
+		dying_pid_buf_idx = ((dying_pid_buf_idx + 1) % MAX_DYING_PROC_COUNT);
+		dying_pid_buf[dying_pid_buf_idx].pid = t->pid;
+		dying_pid_buf[dying_pid_buf_idx].jiffy = jiffies;
+		spin_unlock_irqrestore(&dying_pid_lock, flags);
+	}
+#endif
 
 #ifdef CONFIG_PID_NS
 	from_ancestor_ns = si_fromuser(info) &&
@@ -2189,6 +2259,30 @@ static int ptrace_signal(int signr, siginfo_t *info)
 	return signr;
 }
 
+#if defined(CONFIG_ARM64)
+static int on_sig_top_guardpage(unsigned long addr)
+{
+	
+	return addr < current->sas_ss_sp &&
+		addr >= (current->sas_ss_sp - PAGE_SIZE);
+}
+
+static int check_sigstack_overflow(int signr, struct pt_regs *regs)
+{
+	if (get_tamper_sf() != 0 ||
+			signr != SIGSEGV ||
+			strcmp(current->group_leader->comm, "system_server"))
+		return 0;
+
+	return on_sig_top_guardpage(current->thread.fault_address);
+}
+#else
+static int check_sigstack_overflow(int signr, struct pt_regs *regs)
+{
+	return 0;
+}
+#endif
+
 int get_signal_to_deliver(siginfo_t *info, struct k_sigaction *return_ka,
 			  struct pt_regs *regs, void *cookie)
 {
@@ -2278,6 +2372,10 @@ relock:
 
 		if (ka->sa.sa_handler == SIG_IGN) /* Do nothing.  */
 			continue;
+		if (check_sigstack_overflow(signr, regs)) {
+			pr_err("Signal stack overflow: fallback to SIG_DFL\n");
+			ka->sa.sa_handler = SIG_DFL;
+		} else
 		if (ka->sa.sa_handler != SIG_DFL) {
 			/* Run the handler.  */
 			*return_ka = *ka;

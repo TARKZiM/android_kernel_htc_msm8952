@@ -280,6 +280,7 @@ int mdss_mdp_splash_cleanup(struct msm_fb_data_type *mfd,
 	mfd->fbi->var.reserved[3] = mfd->panel_info->cont_splash_enabled |
 					mfd->splash_info.splash_pipe_allocated;
 
+#if 0
 	if (mdp5_data->splash_mem_addr) {
 		/* Give back the reserved memory to the system */
 		memblock_free(mdp5_data->splash_mem_addr,
@@ -287,7 +288,7 @@ int mdss_mdp_splash_cleanup(struct msm_fb_data_type *mfd,
 		mdss_free_bootmem(mdp5_data->splash_mem_addr,
 					mdp5_data->splash_mem_size);
 	}
-
+#endif
 	mdss_mdp_footswitch_ctrl_splash(0);
 end:
 	return rc;
@@ -494,16 +495,8 @@ static int mdss_mdp_display_splash_image(struct msm_fb_data_type *mfd)
 	rc = mdss_mdp_splash_kickoff(mfd, &src_rect, &dest_rect);
 	if (rc)
 		pr_err("splash image display failed\n");
-	else {
+	else
 		sinfo->splash_pipe_allocated = true;
-		/*
-		 * Once the splash pipe is allocated, set the splash flag which
-		 * is being stored in var.reserved[3].
-		 */
-		mfd->fbi->var.reserved[3] =
-					mfd->panel_info->cont_splash_enabled |
-					mfd->splash_info.splash_pipe_allocated;
-	}
 end:
 	return rc;
 }
