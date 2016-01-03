@@ -25,12 +25,20 @@ extern int htc_net_debug_dump;
 extern int htc_net_debug_print;
 extern int htc_net_debug_enable;
 
+#ifdef CONFIG_HTC_NET_DEBUG
 extern void net_dbg_log_event(const char * event, ...);
+extern void net_dumplog(void);
 
 #define NET_DEBUG(fmt, args...) \
 do{ \
 	if(htc_net_debug_enable) \
 		net_dbg_log_event("[NET]" fmt, args); \
 } while(0)
+#else
+#define net_dbg_log_event(event, ...) {}
+#define net_dumplog() {}
+#define NET_DEBUG(fmt, args...) {}
+#endif
+
 
 #endif 
