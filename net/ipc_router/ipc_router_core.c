@@ -1249,6 +1249,7 @@ void msm_ipc_router_add_local_port(struct msm_ipc_port *port_ptr)
 	up_write(&local_ports_lock_lhc2);
 }
 
+#ifdef CONFIG_HTC_DEBUG_RIL_PCN0010_HTC_DUMP_IPCROUTER_LOG
 int msm_ipc_router_get_current_cmd_line(char * buffer, int buff_len)
 {
 	int r = 0;
@@ -1294,6 +1295,7 @@ int msm_ipc_router_get_current_cmd_line(char * buffer, int buff_len)
 
 	return r;
 }
+#endif
 
 /**
  * msm_ipc_router_create_raw_port() - Create an IPC Router port
