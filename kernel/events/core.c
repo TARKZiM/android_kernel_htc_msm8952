@@ -1290,6 +1290,11 @@ static void perf_group_detach(struct perf_event *event)
 	 * If this was a group event with sibling events then
 	 * upgrade the siblings to singleton events by adding them
 	 * to whatever list we are on.
+	 * If this isn't on a list, make sure we still remove the sibling's
+	 * group_entry from this sibling_list; otherwise, when that sibling
+	 * is later deallocated, it will try to remove itself from this
+	 * sibling_list, which may well have been deallocated already,
+	 * resulting in a use-after-free.
 	 */
 	list_for_each_entry_safe(sibling, tmp, &event->sibling_list, group_entry) {
 		if (list)
