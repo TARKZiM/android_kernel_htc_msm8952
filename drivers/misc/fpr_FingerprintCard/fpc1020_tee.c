@@ -73,15 +73,6 @@ static int fb_notifier_callback(struct notifier_block *self,
 
 #define FPC_TTW_HOLD_TIME 500
 
-#define DEBUG
-
-#ifdef dev_dbg
-#undef dev_dbg
-#endif
-#define dev_dbg(dev, format, arg...) do { if (1) \
-                                        dev_info(dev,format, ##arg); \
-                                        }while(0)
-
 static const char * const pctl_names[] = {
 	"fpc1020_reset_reset",
 	"fpc1020_reset_active",
@@ -269,9 +260,10 @@ static int fpc1020_irq_enable(struct fpc1020_data *fpc1020, bool enable)
 {
     int ret = 0;
     int irq_gpio_level;
+    struct device *dev = fpc1020->dev;
     irq_gpio_level = gpio_get_value(fpc1020->irq_gpio);
 
-    pr_info("%s+ en:%d, level:%d\n", __func__, enable, irq_gpio_level);
+    dev_dbg(dev, "%s+ en:%d, level:%d\n", __func__, enable, irq_gpio_level);
 
     if (enable)
     {
@@ -295,7 +287,7 @@ static int fpc1020_irq_enable(struct fpc1020_data *fpc1020, bool enable)
 #endif
     }
 
-    pr_info("%s- en:%d, level:%d\n", __func__, enable, irq_gpio_level);
+    dev_dbg(dev, "%s- en:%d, level:%d\n", __func__, enable, irq_gpio_level);
 
     return ret;
 }
@@ -676,13 +668,13 @@ static int fpc1020_suspend(struct device *dev)
     struct fpc1020_data *fpc1020 = dev_get_drvdata(dev);
     int irq_gpio_level;
 
-    pr_info("%s+\n", __func__);
+    dev_dbg(dev, "%s+\n", __func__);
 
     irq_gpio_level = read_irq_gpio(fpc1020);
     if (irq_gpio_level != 0)
         dev_info(dev, "%s irq_gpio_level:%d\n", __func__, irq_gpio_level);
 
-    pr_info("%s- ret:%d\n", __func__, ret);
+    dev_dbg(dev, "%s- ret:%d\n", __func__, ret);
 
     return 0;
 }
