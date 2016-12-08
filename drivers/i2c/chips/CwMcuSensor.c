@@ -4539,7 +4539,7 @@ static irqreturn_t cwmcu_irq_handler(int irq, void *handle)
 	ret = CWMCU_i2c_read(mcu_data, CWSTM32_BATCH_MODE_COMMAND, &batch_st, 1);
 	if (ret < 0)batch_st = 0;
 
-	I(
+	D(
 	  "%s: INT_st(1, 2, 3, 4) = (0x%x, 0x%x, 0x%x, 0x%x), err_st = 0x%x"
 	  ", batch_st = 0x%x\n",
 	  __func__, INT_st1, INT_st2, INT_st3, INT_st4, err_st, batch_st);
@@ -5835,7 +5835,7 @@ static void cwmcu_one_shot(struct work_struct *work)
 	struct cwmcu_data *mcu_data = container_of((struct work_struct *)work,
 			struct cwmcu_data, one_shot_work);
 	u8 clear_intr;
-	I("w_activated_i2c is %d,w_re_init is %d, w_kick_start_mcu is %d, w_mcu_state_change is %d, w_flush_fifo is %d, w_clear_fifo is %d , w_hall_inform_mcu is %d, w_batch_read is %d\n",
+	D("w_activated_i2c is %d,w_re_init is %d, w_kick_start_mcu is %d, w_mcu_state_change is %d, w_flush_fifo is %d, w_clear_fifo is %d , w_hall_inform_mcu is %d, w_batch_read is %d\n",
 	mcu_data->w_activated_i2c,mcu_data->w_re_init,mcu_data->w_kick_start_mcu,mcu_data->w_mcu_state_change,mcu_data->w_flush_fifo,mcu_data->w_clear_fifo,mcu_data->w_hall_inform_mcu,mcu_data->w_batch_read);
 	wake_lock_timeout(&mcu_data->one_shot_wake_lock,
 			  msecs_to_jiffies(60000));
@@ -5987,7 +5987,7 @@ static void cwmcu_one_shot(struct work_struct *work)
 #endif
 
 	if (mcu_data->w_batch_read == true) {
-		I("w_batch_read ++ \n");
+		D("w_batch_read ++ \n");
 		mcu_data->w_batch_read = false;
 
 		wake_lock(&mcu_data->batch_read_wake_lock);
@@ -5998,7 +5998,7 @@ static void cwmcu_one_shot(struct work_struct *work)
 		cwmcu_powermode_switch(mcu_data, 0);
 
 		wake_unlock(&mcu_data->batch_read_wake_lock);
-		I("w_batch_read -- \n");
+		D("w_batch_read -- \n");
 	}
 
 	wake_unlock(&mcu_data->one_shot_wake_lock);
