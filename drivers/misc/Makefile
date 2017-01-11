@@ -75,5 +75,5 @@ obj-y				+= qcom/
 obj-y				+= headset/
 obj-$(CONFIG_USB_EXT_TYPE_C_PERICOM)	+= type-c-pericom.o
 obj-$(CONFIG_USB_EXT_TYPE_C_TI)		+= type-c-ti.o
-obj-$(CONFIG_UID_CPUTIME) 	+= uid_cputime.o
+obj-$(CONFIG_UID_SYS_STATS) += uid_sys_stats.o
 obj-$(CONFIG_HTC_FLASHLIGHT) += htc_flashlight.o
