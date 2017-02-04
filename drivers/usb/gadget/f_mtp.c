@@ -96,7 +96,6 @@ module_param(mtp_tx_req_len, uint, S_IRUGO | S_IWUSR);
 
 unsigned int mtp_tx_reqs = MTP_TX_REQ_MAX;
 module_param(mtp_tx_reqs, uint, S_IRUGO | S_IWUSR);
-static int htc_mtp_open_state;/*++ 2015/06/16, USB Team, PCN00035 ++*/
 
 static const char mtp_shortname[] = "mtp_usb";
 
@@ -1352,7 +1351,6 @@ fail:
 static int mtp_open(struct inode *ip, struct file *fp)
 {
 	printk(KERN_INFO "mtp_open\n");
-	htc_mtp_open_state = 1;/*++ 2015/06/16, USB Team, PCN00035 ++*/
 	if (mtp_lock(&_mtp_dev->open_excl))
 		return -EBUSY;
 
@@ -1373,7 +1371,6 @@ static int mtp_release(struct inode *ip, struct file *fp)
 /*-- 2015/06/24, USB Team, PCN00039 --*/
 	printk(KERN_INFO "mtp_release\n");
 
-	htc_mtp_open_state = 0;/*++ 2015/06/16, USB Team, PCN00035 ++*/
 	mtp_unlock(&_mtp_dev->open_excl);
 /*++ 2015/06/24, USB Team, PCN00039 ++*/
 	if (mtp_lock(&dev->read_excl)) {
@@ -1825,7 +1822,6 @@ static int mtp_setup(void)
 	INIT_WORK(&dev->receive_file_work, receive_file_work);
 
 	_mtp_dev = dev;
-	htc_mtp_open_state = 0;/*++ 2015/06/16, USB Team, PCN00035 ++*/
 
 	ret = misc_register(&mtp_device);
 	if (ret)
