@@ -766,7 +766,7 @@ typedef struct sSirChannelList
 
 typedef struct sSirDFSChannelList
 {
-    v_TIME_t         timeStamp[SIR_MAX_24G_5G_CHANNEL_RANGE];
+    tANI_U32         timeStamp[SIR_MAX_24G_5G_CHANNEL_RANGE];
 
 } tSirDFSChannelList, *tpSirDFSChannelList;
 
@@ -857,8 +857,8 @@ typedef struct sSirSmeScanReq
      * Values of 0xC0, 0x80 & 0x40 are to be used by
      * Roaming/application when 11d is enabled.
      */
-    tANI_U32 min_chntime_btc_esco;    //in units of milliseconds
-    tANI_U32 max_chntime_btc_esco;    //in units of milliseconds
+    tANI_U32 minChannelTimeBtc;    //in units of milliseconds
+    tANI_U32 maxChannelTimeBtc;    //in units of milliseconds
     tANI_U8              returnAfterFirstMatch;
 
     /**
@@ -2929,10 +2929,11 @@ typedef struct sSmeDelBAPeerInd
     // Message Type
     tANI_U16 mesgType;
 
+    tSirMacAddr bssId;//BSSID 
+
     // Message Length
     tANI_U16 mesgLen;
 
-    tSirMacAddr bssId;//BSSID
     // Station Index
     tANI_U16 staIdx;
 
@@ -3766,12 +3767,6 @@ typedef struct sSirWlanSetRxpFilters
     tANI_U8 setMcstBcstFilter;
 }tSirWlanSetRxpFilters,*tpSirWlanSetRxpFilters;
 
-
-typedef struct sSirUpdateCfgIntParam
-{
-    tANI_U32 cfgId;
-}tSirUpdateCfgIntParam,*tpSirUpdateCfgIntParam;
-
 typedef struct
 {
   //FW mail box address
@@ -3788,56 +3783,9 @@ typedef struct
   tANI_U32 reserved2;
 }tAniLoggingInitRsp, *tpAniLoggingInitRsp;
 
-/**
- * struct rsp_stats - arp packet stats
- * @status: success or failure
- * @tx_fw_cnt: tx packets count
- * @tx_ack_cnt: tx acknowledgement count
- */
-typedef struct {
-   uint32_t status;
-   uint16_t dad;
-   uint16_t tx_fw_cnt;
-   uint16_t tx_ack_cnt;
-   uint16_t rx_fw_cnt;
-} rsp_stats;
-
-typedef void(*setArpStatsReqCb)(void *data, VOS_STATUS rsp);
-
-/**
- * struct setArpStatsParams - set/reset arp stats
- * @flag: enable/disable stats
- * @pkt_type: type of packet(1 - arp)
- * @ip_addr: subnet ipv4 address in case of encrypted packets
- * @rsp_cb_fn: FW response callback api
- * @data_ctx: parameter for callback api
- */
-typedef struct {
-   uint8_t flag;
-   uint8_t pkt_type;
-   uint32_t ip_addr;
-   setArpStatsReqCb rsp_cb_fn;
-   void *data_ctx;
-} setArpStatsParams, *psetArpStatsParams;
-
-typedef void(*getArpStatsReqCb)(void *data, rsp_stats *rsp);
-/**
- * struct getArpStatsParams - get arp stats from firmware
- * @pkt_type: packet type(1 - ARP)
- * @get_rsp_cb_fn: FW response callback api
- * @data_ctx: parameter for callback api
- */
-typedef struct {
-   uint8_t pkt_type;
-   getArpStatsReqCb get_rsp_cb_fn;
-   void *data_ctx;
-} getArpStatsParams, *pgetArpStatsParams;
-
 typedef void(*FWLoggingInitReqCb)(void *fwlogInitCbContext, tAniLoggingInitRsp *pRsp);
 typedef void ( *tGetFrameLogCallback) (void *pContext);
 typedef void(*RssiMonitorReqCb)(void *rssiMonitorCbContext, VOS_STATUS status);
-typedef void(*pktFilterReqCb)(void *data, tANI_U32 status);
-
 
 typedef struct sAniGetFrameLogReq
 {
@@ -4279,8 +4227,6 @@ typedef struct sSirRcvFltPktClearParam
   tANI_U8    filterId;
   tSirMacAddr selfMacAddr;
   tSirMacAddr bssId;
-  pktFilterReqCb     pktFilterCallback;
-  void        *cbCtx;
 }tSirRcvFltPktClearParam, *tpSirRcvFltPktClearParam;
 
 //
@@ -6108,11 +6054,5 @@ typedef struct {
    tANI_U32  value;
 } tModifyRoamParamsReqParams, * tpModifyRoamParamsReqParams;
 
-typedef void(*hdd_conAliveCb)(void *data, bool status);
-
-typedef struct {
-   hdd_conAliveCb rsp_cb_fn;
-   void *data_ctx;
-}getConStatusParams, *pgetConStatusParams;
 
 #endif /* __SIR_API_H */

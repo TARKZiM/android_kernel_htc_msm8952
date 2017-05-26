@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2016 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2015 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -141,19 +141,17 @@ void hdd_softap_traffic_monitor_timeout_handler( void *pUsrData )
    return;
 }
 
-VOS_STATUS hdd_start_trafficMonitor( hdd_adapter_t *pAdapter, bool re_init)
+VOS_STATUS hdd_start_trafficMonitor( hdd_adapter_t *pAdapter )
 {
 
     hdd_context_t *pHddCtx = WLAN_HDD_GET_CTX(pAdapter);
     VOS_STATUS status = VOS_STATUS_SUCCESS;
 
     ENTER();
-
-    if (!re_init) {
-        status = wlan_hdd_validate_context(pHddCtx);
-        if (-ENODEV == status) {
-            return status;
-        }
+    status = wlan_hdd_validate_context(pHddCtx);
+    if (0 != status)
+    {
+        return status;
     }
 
     if ((pHddCtx->cfg_ini->enableTrafficMonitor) &&
@@ -184,18 +182,16 @@ VOS_STATUS hdd_start_trafficMonitor( hdd_adapter_t *pAdapter, bool re_init)
     return status;
 }
 
-VOS_STATUS hdd_stop_trafficMonitor( hdd_adapter_t *pAdapter, bool re_init)
+VOS_STATUS hdd_stop_trafficMonitor( hdd_adapter_t *pAdapter )
 {
     hdd_context_t *pHddCtx = WLAN_HDD_GET_CTX(pAdapter);
     VOS_STATUS status = VOS_STATUS_SUCCESS;
 
     ENTER();
-
-    if (!re_init){
-        status = wlan_hdd_validate_context(pHddCtx);
-        if (-ENODEV == status) {
-            return status;
-        }
+    status = wlan_hdd_validate_context(pHddCtx);
+    if (-ENODEV == status)
+    {
+        return status;
     }
 
     if (pHddCtx->traffic_monitor.isInitialized)
@@ -318,10 +314,10 @@ error:
 }
 
 /**============================================================================
-  @brief __hdd_softap_hard_start_xmit() - Function registered with the Linux OS
-  for transmitting packets. There are 2 versions of this function. One that
-  uses locked queue and other that uses lockless queues. Both have been
-  retained to do some performance testing
+  @brief hdd_softap_hard_start_xmit() - Function registered with the Linux OS for 
+  transmitting packets. There are 2 versions of this function. One that uses
+  locked queue and other that uses lockless queues. Both have been retained to
+  do some performance testing
 
   @param skb      : [in]  pointer to OS packet (sk_buff)
   @param dev      : [in] pointer to Libra network device
@@ -329,7 +325,7 @@ error:
   @return         : NET_XMIT_DROP if packets are dropped
                   : NET_XMIT_SUCCESS if packet is enqueued succesfully
   ===========================================================================*/
-int __hdd_softap_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
+int hdd_softap_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
 {
    VOS_STATUS status;
    WLANTL_ACEnumType ac = WLANTL_AC_BE;
@@ -390,7 +386,7 @@ int __hdd_softap_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
    else
    {
       STAId = hdd_sta_id_find_from_mac_addr(pAdapter, pDestMacAddress);
-      if (STAId == HDD_WLAN_INVALID_STA_ID || STAId >= WLAN_MAX_STA_COUNT)
+      if (STAId == HDD_WLAN_INVALID_STA_ID)
       {
          VOS_TRACE( VOS_MODULE_ID_HDD_SAP_DATA, VOS_TRACE_LEVEL_WARN,
                     "%s: Failed to find right station", __func__);
@@ -564,15 +560,6 @@ int __hdd_softap_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
 xmit_done:
    spin_unlock_bh( &pSapCtx->staInfo_lock );
    return os_status;
-}
-
-int hdd_softap_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
-{
-	int ret;
-	vos_ssr_protect(__func__);
-	ret = __hdd_softap_hard_start_xmit(skb, dev);
-	vos_ssr_unprotect(__func__);
-	return ret;
 }
 
 /**============================================================================
@@ -853,7 +840,7 @@ struct net_device_stats* hdd_softap_stats(struct net_device *dev)
   @return         : VOS_STATUS_E_FAILURE if any errors encountered 
                   : VOS_STATUS_SUCCESS otherwise
   ===========================================================================*/
-VOS_STATUS hdd_softap_init_tx_rx(hdd_adapter_t *pAdapter, bool re_init)
+VOS_STATUS hdd_softap_init_tx_rx( hdd_adapter_t *pAdapter )
 {
    VOS_STATUS status = VOS_STATUS_SUCCESS;
    v_SINT_t i = -1;
@@ -905,7 +892,7 @@ VOS_STATUS hdd_softap_init_tx_rx(hdd_adapter_t *pAdapter, bool re_init)
    /* Update the AC weights suitable for SoftAP mode of operation */
    WLANTL_SetACWeights((WLAN_HDD_GET_CTX(pAdapter))->pvosContext, pACWeights);
 
-   if (VOS_STATUS_SUCCESS != hdd_start_trafficMonitor(pAdapter, re_init))
+   if (VOS_STATUS_SUCCESS != hdd_start_trafficMonitor(pAdapter))
    {
        VOS_TRACE( VOS_MODULE_ID_HDD_SAP_DATA, VOS_TRACE_LEVEL_ERROR,
           "%s: failed to start Traffic Monito timer ", __func__ );
@@ -922,11 +909,11 @@ VOS_STATUS hdd_softap_init_tx_rx(hdd_adapter_t *pAdapter, bool re_init)
   @return         : VOS_STATUS_E_FAILURE if any errors encountered 
                   : VOS_STATUS_SUCCESS otherwise
   ===========================================================================*/
-VOS_STATUS hdd_softap_deinit_tx_rx( hdd_adapter_t *pAdapter, bool re_init)
+VOS_STATUS hdd_softap_deinit_tx_rx( hdd_adapter_t *pAdapter )
 {
    VOS_STATUS status = VOS_STATUS_SUCCESS;
 
-   if (VOS_STATUS_SUCCESS != hdd_stop_trafficMonitor(pAdapter, re_init))
+   if (VOS_STATUS_SUCCESS != hdd_stop_trafficMonitor(pAdapter))
    {
        VOS_TRACE( VOS_MODULE_ID_HDD_SAP_DATA, VOS_TRACE_LEVEL_ERROR,
                  "%s: Fail to Stop Traffic Monito timer", __func__ );
@@ -1746,13 +1733,6 @@ VOS_STATUS hdd_softap_rx_packet_cbk( v_VOID_t *vosContext,
             VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_INFO,
                       "SAP RX ARP");
          }
-      }
-
-      if (pHddCtx->rx_wow_dump) {
-         if (!(VOS_PKT_PROTO_TYPE_ARP & proto_type) &&
-             !(VOS_PKT_PROTO_TYPE_EAPOL & proto_type))
-            hdd_log_ip_addr(skb);
-            pHddCtx->rx_wow_dump = false;
       }
 
       if (WLAN_RX_BCMC_STA_ID == pRxMetaInfo->ucDesSTAId)
