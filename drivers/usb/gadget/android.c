@@ -508,8 +508,6 @@ static void android_work(struct work_struct *data)
 	}
 	if (connect2pc != dev->sw_connected) {
 		connect2pc = dev->sw_connected;
-		switch_set_state(&cdev->sw_connect2pc, connect2pc ? 1 : 0);
-		pr_info("set usb_connect2pc = %d\n", connect2pc);
 	}
 
 	if (dev->connected == 0 && check_htc_mode_status() != NOT_ON_AUTOBOT) {
@@ -4410,10 +4408,6 @@ static int android_bind(struct usb_composite_dev *cdev)
 		list_for_each_entry(conf, &dev->configs, list_item)
 			conf->usb_config.descriptors = otg_desc;
 
-	cdev->sw_connect2pc.name = "usb_connect2pc";
-	ret = switch_dev_register(&cdev->sw_connect2pc);
-	if (ret < 0)
-		pr_err("switch_dev_register fail:usb_connect2pc\n");
 	cdev->sw_function_switch_on.name = "function_switch_on";
 	ret = switch_dev_register(&cdev->sw_function_switch_on);
 	cdev->sw_function_switch_off.name = "function_switch_off";
@@ -4433,7 +4427,6 @@ static int android_usb_unbind(struct usb_composite_dev *cdev)
 	cancel_work_sync(&dev->work);
 	cancel_delayed_work_sync(&dev->pm_qos_work);
 	android_cleanup_functions(dev->functions);
-	switch_dev_unregister(&cdev->sw_connect2pc);	
 	switch_dev_unregister(&cdev->sw_function_switch_on);
 	switch_dev_unregister(&cdev->sw_function_switch_off);
 	switch_dev_unregister(&cdev->usb_nonstandard_cable);

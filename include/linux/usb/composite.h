@@ -419,7 +419,6 @@ struct usb_composite_dev {
 
 	/* protects deactivations and delayed_status counts*/
 	spinlock_t			lock;
-	struct switch_dev		sw_connect2pc;	// ++ 2015/05/29 USB Team, PCN00012 ++
 	struct delayed_work request_reset;// ++ 2015/6/4 USB Team, PCN00022 ++
 	struct work_struct cdusbcmdwork;/*++ 2015/06/17, USB Team, PCN00036 ++*/
 };
