@@ -269,33 +269,6 @@ static struct usb_ss_ep_comp_descriptor mtp_superspeed_intr_comp_desc = {
 	.wBytesPerInterval =	cpu_to_le16(INTR_BUFFER_SIZE),
 };
 
-static struct usb_descriptor_header *fs_mtp_descs[] = {
-	(struct usb_descriptor_header *) &mtp_interface_desc,
-	(struct usb_descriptor_header *) &mtp_fullspeed_in_desc,
-	(struct usb_descriptor_header *) &mtp_fullspeed_out_desc,
-	(struct usb_descriptor_header *) &mtp_intr_desc,
-	NULL,
-};
-
-static struct usb_descriptor_header *hs_mtp_descs[] = {
-	(struct usb_descriptor_header *) &mtp_interface_desc,
-	(struct usb_descriptor_header *) &mtp_highspeed_in_desc,
-	(struct usb_descriptor_header *) &mtp_highspeed_out_desc,
-	(struct usb_descriptor_header *) &mtp_intr_desc,
-	NULL,
-};
-
-static struct usb_descriptor_header *ss_mtp_descs[] = {
-	(struct usb_descriptor_header *) &mtp_interface_desc,
-	(struct usb_descriptor_header *) &mtp_superspeed_in_desc,
-	(struct usb_descriptor_header *) &mtp_superspeed_in_comp_desc,
-	(struct usb_descriptor_header *) &mtp_superspeed_out_desc,
-	(struct usb_descriptor_header *) &mtp_superspeed_out_comp_desc,
-	(struct usb_descriptor_header *) &mtp_intr_desc,
-	(struct usb_descriptor_header *) &mtp_superspeed_intr_comp_desc,
-	NULL,
-};
-
 static struct usb_descriptor_header *fs_ptp_descs[] = {
 	(struct usb_descriptor_header *) &ptp_interface_desc,
 	(struct usb_descriptor_header *) &mtp_fullspeed_in_desc,
@@ -309,17 +282,6 @@ static struct usb_descriptor_header *hs_ptp_descs[] = {
 	(struct usb_descriptor_header *) &mtp_highspeed_in_desc,
 	(struct usb_descriptor_header *) &mtp_highspeed_out_desc,
 	(struct usb_descriptor_header *) &mtp_intr_desc,
-	NULL,
-};
-
-static struct usb_descriptor_header *ss_ptp_descs[] = {
-	(struct usb_descriptor_header *) &ptp_interface_desc,
-	(struct usb_descriptor_header *) &mtp_superspeed_in_desc,
-	(struct usb_descriptor_header *) &mtp_superspeed_in_comp_desc,
-	(struct usb_descriptor_header *) &mtp_superspeed_out_desc,
-	(struct usb_descriptor_header *) &mtp_superspeed_out_comp_desc,
-	(struct usb_descriptor_header *) &mtp_intr_desc,
-	(struct usb_descriptor_header *) &mtp_superspeed_intr_comp_desc,
 	NULL,
 };
 
@@ -1710,8 +1672,6 @@ static int mtp_bind_config(struct usb_configuration *c, bool ptp_config)
 
 	dev->function.fs_descriptors = fs_ptp_descs;
 	dev->function.hs_descriptors = hs_ptp_descs;
-	if (gadget_is_superspeed(c->cdev->gadget))
-		dev->function.ss_descriptors = ss_ptp_descs;/*++ 2015/08/04 USB Team, PCN00065 ++*/
 
 	dev->function.bind = mtp_function_bind;
 	dev->function.unbind = mtp_function_unbind;

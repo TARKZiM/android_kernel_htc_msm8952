@@ -365,31 +365,6 @@ static ssize_t store_dummy_usb_serial_number(struct device *dev, struct device_a
 	return size;
 }
 
-/*++ 2015/6/29, USB Team, PCN00050 ++*/
-static const char *os_to_string(int os_type)
-{
-	switch (os_type) {
-		case OS_NOT_YET:    return "OS_NOT_YET";
-		case OS_MAC:        return "OS_MAC";
-		case OS_LINUX:      return "OS_LINUX";
-		case OS_WINDOWS:    return "OS_WINDOWS";
-		default:        return "UNKNOWN";
-	}
-}
-/*-- 2015/6/29, USB Team, PCN00050 --*/
-
-/*-- 2015/6/4, USB Team, PCN00023 --*/
-/* show current os type for mac or non-mac */
-static ssize_t show_os_type(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	unsigned length;
-
-	length = sprintf(buf, "%d\n", os_type);
-	USB_INFO("%s: %s, %s", __func__, os_to_string(os_type), buf);
-	return length;
-}
-/*++ 2015/06/29 USB Team, PCN00048 ++*/
 static ssize_t store_ats(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t count)
 {
@@ -501,7 +476,6 @@ static DEVICE_ATTR(usb_ac_cable_status, 0444, show_usb_ac_cable_status, NULL);
 /*-- 2015/6/2, USB Team, PCN00016 --*/
 
 static DEVICE_ATTR(dummy_usb_serial_number, 0644, iSerial_show, store_dummy_usb_serial_number);/*++ 2015/6/4, USB Team, PCN00023 ++*/
-static DEVICE_ATTR(os_type, 0444, show_os_type, NULL);
 static DEVICE_ATTR(ats, 0664, show_ats, store_ats);/*++ 2015/06/29 USB Team, PCN00048 ++*/
 static DEVICE_ATTR(usb_disable, 0664,show_usb_disable_setting, store_usb_disable_setting);/*++ 2015/6/3 USB Team, PCN00021 ++*/
 static DEVICE_ATTR(usb_denied, 0444, show_is_usb_denied, NULL);/*++ 2015/6/25 USB Team, PCN00045 ++*/
@@ -513,7 +487,6 @@ static DEVICE_ATTR(typec_dump_reg, 0440, show_typec_dump_reg, NULL); /*++ 2016/0
 
 static __maybe_unused struct attribute *android_htc_usb_attributes[] = {
 	&dev_attr_dummy_usb_serial_number.attr,
-	&dev_attr_os_type.attr,
 	&dev_attr_ats.attr,/*++ 2015/06/29 USB Team, PCN00048 ++*/
 	&dev_attr_usb_ac_cable_status.attr,/*++ 2015/6/2, USB Team, PCN00016 ++*/
 	&dev_attr_usb_disable.attr,/*++ 2015/6/3 USB Team, PCN00021 ++*/

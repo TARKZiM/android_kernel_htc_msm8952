@@ -49,11 +49,7 @@ enum {
 	OS_WINDOWS,
 };
 
-static int os_type;
 bool connect2pc;
-
-static int first_dt_w_length = 0;
-static int first_string_w_length = 0;
 
 #include "composite.c"
 
@@ -514,14 +510,6 @@ static void android_work(struct work_struct *data)
 		connect2pc = dev->sw_connected;
 		switch_set_state(&cdev->sw_connect2pc, connect2pc ? 1 : 0);
 		pr_info("set usb_connect2pc = %d\n", connect2pc);
-		if (!connect2pc) {
-			first_dt_w_length = 0;
-			first_string_w_length = 0;
-			if (!usb_get_connect_type()) {
-				pr_info("%s: OS_NOT_YET\n", __func__);
-				os_type = OS_NOT_YET;
-			}
-		}
 	}
 
 	if (dev->connected == 0 && check_htc_mode_status() != NOT_ON_AUTOBOT) {
