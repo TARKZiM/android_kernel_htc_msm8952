@@ -404,7 +404,12 @@ static struct cpuset *alloc_trial_cpuset(const struct cpuset *cs)
 		kfree(trial);
 		return NULL;
 	}
+	if (!alloc_cpumask_var(&trial->cpus_requested, GFP_KERNEL)) {
+		kfree(trial);
+		return NULL;
+	}
 	cpumask_copy(trial->cpus_allowed, cs->cpus_allowed);
+	cpumask_copy(trial->cpus_requested, cs->cpus_requested);
 
 	return trial;
 }
@@ -415,6 +420,7 @@ static struct cpuset *alloc_trial_cpuset(const struct cpuset *cs)
  */
 static void free_trial_cpuset(struct cpuset *trial)
 {
+	free_cpumask_var(trial->cpus_requested);
 	free_cpumask_var(trial->cpus_allowed);
 	kfree(trial);
 }
