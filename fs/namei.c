@@ -3132,10 +3132,9 @@ out2:
 }
 
 struct file *do_filp_open(int dfd, struct filename *pathname,
-		const struct open_flags *op)
+		const struct open_flags *op, int flags)
 {
 	struct nameidata nd;
-	int flags = op->lookup_flags;
 	struct file *filp;
 
 	filp = path_openat(dfd, pathname, &nd, op, flags | LOOKUP_RCU);
@@ -3147,15 +3146,16 @@ struct file *do_filp_open(int dfd, struct filename *pathname,
 }
 
 struct file *do_file_open_root(struct dentry *dentry, struct vfsmount *mnt,
-		const char *name, const struct open_flags *op)
+		const char *name, const struct open_flags *op, int flags)
 {
 	struct nameidata nd;
 	struct file *file;
 	struct filename filename = { .name = name };
-	int flags = op->lookup_flags | LOOKUP_ROOT;
 
 	nd.root.mnt = mnt;
 	nd.root.dentry = dentry;
+
+	flags |= LOOKUP_ROOT;
 
 	if (dentry->d_inode->i_op->follow_link && op->intent & LOOKUP_OPEN)
 		return ERR_PTR(-ELOOP);
