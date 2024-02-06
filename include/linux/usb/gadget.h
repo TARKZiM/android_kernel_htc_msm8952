@@ -1020,7 +1020,6 @@ struct usb_gadget_driver {
 	int			(*setup)(struct usb_gadget *,
 					const struct usb_ctrlrequest *);
 	void			(*disconnect)(struct usb_gadget *);
-	void			(*mute_disconnect)(struct usb_gadget *);/*++ 2015/06/25 USB Team, PCN00044 ++*/
 	void			(*suspend)(struct usb_gadget *);
 	void			(*resume)(struct usb_gadget *);
 

@@ -2452,7 +2452,7 @@ __acquires(mEp->lock)
  *
  * This function returns an error code
  */
-static int _gadget_stop_activity(struct usb_gadget *gadget, int mute)/*++ 2015/06/25 USB Team, PCN00044 ++*/
+static int _gadget_stop_activity(struct usb_gadget *gadget)
 {
 	struct ci13xxx    *udc = container_of(gadget, struct ci13xxx, gadget);
 	unsigned long flags;
@@ -2475,12 +2475,7 @@ static int _gadget_stop_activity(struct usb_gadget *gadget, int mute)/*++ 2015/0
 	gadget->host_request = 0;
 	gadget->otg_srp_reqd = 0;
 
-/*++ 2015/06/25 USB Team, PCN00044 ++*/
-	if (mute)
-		udc->driver->mute_disconnect(gadget);
-	else
-		udc->driver->disconnect(gadget);
-/*-- 2015/06/25 USB Team, PCN00044 --*/
+	udc->driver->disconnect(gadget);
 
 	spin_lock_irqsave(udc->lock, flags);
 	_ep_nuke(&udc->ep0out);
@@ -2536,7 +2531,7 @@ __acquires(udc->lock)
 	if (udc->transceiver)
 		usb_phy_set_power(udc->transceiver, 100);
 
-	retval = _gadget_stop_activity(&udc->gadget, 1);/*++ 2015/06/25 USB Team, PCN00044 ++*/
+	retval = _gadget_stop_activity(&udc->gadget);
 	if (retval)
 		goto done;
 
@@ -3667,7 +3662,7 @@ static int ci13xxx_vbus_session(struct usb_gadget *_gadget, int is_active)
 				hw_device_state(udc->ep0out.qh.dma);
 		} else {
 			hw_device_state(0);
-			_gadget_stop_activity(&udc->gadget, 0);/*++ 2015/06/25 USB Team, PCN00044 ++*/
+			_gadget_stop_activity(&udc->gadget);
 			if (udc->udc_driver->notify_event)
 				udc->udc_driver->notify_event(udc,
 					CI13XXX_CONTROLLER_DISCONNECT_EVENT);
@@ -3740,7 +3735,7 @@ static int ci13xxx_pullup(struct usb_gadget *_gadget, int is_active)
 	} else {
 		hw_device_state(0);
 		spin_unlock_irqrestore(udc->lock, flags);
-		_gadget_stop_activity(&udc->gadget, 1);/*++ 2015/06/25 USB Team, PCN00044 ++*/
+		_gadget_stop_activity(&udc->gadget);
 	}
 
 	return 0;
@@ -3888,7 +3883,7 @@ static int ci13xxx_stop(struct usb_gadget *gadget,
 			udc->vbus_active) {
 		hw_device_state(0);
 		spin_unlock_irqrestore(udc->lock, flags);
-		_gadget_stop_activity(&udc->gadget, 0);/*++ 2015/06/25 USB Team, PCN00044 ++*/
+		_gadget_stop_activity(&udc->gadget);
 		spin_lock_irqsave(udc->lock, flags);
 		pm_runtime_put(&udc->gadget.dev);
 	}
